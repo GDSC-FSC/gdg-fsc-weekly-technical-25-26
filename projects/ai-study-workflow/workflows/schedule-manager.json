@@ -1,0 +1,167 @@
+{
+  "name": "Study Schedule Manager",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "study-schedule",
+        "options": {},
+        "responseMode": "responseNode"
+      },
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "study-schedule"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "ai-agent",
+      "name": "Schedule AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.0-flash-exp",
+        "options": {
+          "temperature": 0.5
+        }
+      },
+      "id": "gemini-model",
+      "name": "Gemini Scheduler",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [450, 150],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "1",
+          "name": "Google Gemini API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "You are a study schedule assistant. Based on the user's input:\n- Subjects: {{ $json.body.subjects }}\n- Available hours per day: {{ $json.body.hoursPerDay }}\n- Exam dates: {{ $json.body.examDates }}\n- Study goals: {{ $json.body.goals }}\n\nCreate an optimized study schedule that:\n1. Distributes study time effectively\n2. Includes breaks and review sessions\n3. Prioritizes subjects based on exam dates\n4. Accounts for difficulty levels\n5. Includes specific tasks and objectives\n\nFormat the schedule as a structured weekly plan."
+      },
+      "id": "prompt",
+      "name": "Schedule Prompt",
+      "type": "@n8n/n8n-nodes-langchain.promptTemplate",
+      "typeVersion": 1,
+      "position": [650, 150]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "calendarId": "primary",
+        "start": "={{ $json.eventStart }}",
+        "end": "={{ $json.eventEnd }}",
+        "summary": "={{ $json.subject }} - {{ $json.task }}",
+        "description": "={{ $json.description }}",
+        "options": {
+          "reminders": {
+            "useDefault": false,
+            "overrides": [
+              {
+                "method": "popup",
+                "minutes": 30
+              }
+            ]
+          }
+        }
+      },
+      "id": "google-calendar",
+      "name": "Add to Google Calendar",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.2,
+      "position": [650, 300],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "3",
+          "name": "Google Calendar"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"success\": true, \"message\": \"Study schedule created and added to calendar\", \"schedule\": $json } }}",
+        "options": {}
+      },
+      "id": "respond-to-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [850, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Schedule AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Add to Google Calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Google Calendar": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Scheduler": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Schedule AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Prompt": {
+      "ai_promptTemplate": [
+        [
+          {
+            "node": "Schedule AI Agent",
+            "type": "ai_promptTemplate",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

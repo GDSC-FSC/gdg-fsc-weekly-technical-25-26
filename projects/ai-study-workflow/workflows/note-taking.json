@@ -1,0 +1,234 @@
+{
+  "name": "Smart Note-Taking Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "resolveData": true,
+        "options": {}
+      },
+      "id": "google-drive-trigger",
+      "name": "Google Drive Trigger",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "4",
+          "name": "Google Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": "={{ $json.id }}",
+        "options": {
+          "googleFileConversion": {
+            "conversion": {
+              "docsToFormat": "text/plain"
+            }
+          }
+        }
+      },
+      "id": "download-file",
+      "name": "Download File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [450, 300],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "4",
+          "name": "Google Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "ai-agent",
+      "name": "Note Processing AI",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.0-flash-exp",
+        "options": {
+          "temperature": 0.4,
+          "maxOutputTokens": 8192
+        }
+      },
+      "id": "gemini-model",
+      "name": "Gemini Note Processor",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [650, 150],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "1",
+          "name": "Google Gemini API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "You are a note organization assistant. Process the following notes:\n\n{{ $json.content }}\n\nPerform these tasks:\n1. Organize notes by topics and subtopics\n2. Extract key concepts and definitions\n3. Create a summary (max 200 words)\n4. Identify important formulas or equations\n5. Suggest related topics to study\n6. Generate 5 review questions\n7. Format in markdown with proper headers\n\nFile name: {{ $json.name }}\nDate: {{ $now.format('YYYY-MM-DD') }}"
+      },
+      "id": "prompt",
+      "name": "Note Processing Prompt",
+      "type": "@n8n/n8n-nodes-langchain.promptTemplate",
+      "typeVersion": 1,
+      "position": [850, 150]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "folderId": {
+          "__rl": true,
+          "value": "root",
+          "mode": "list"
+        },
+        "name": "={{ $json.name.replace(/\\.[^/.]+$/, '') }}_processed.md",
+        "options": {
+          "appProperties": {
+            "property": [
+              {
+                "key": "processedBy",
+                "value": "n8n-ai-workflow"
+              },
+              {
+                "key": "originalFile",
+                "value": "={{ $json.id }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "save-processed",
+      "name": "Save Processed Notes",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [850, 300],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "4",
+          "name": "Google Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "insert",
+        "table": "notes",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "title": "={{ $json.name }}",
+            "content": "={{ $json.processedContent }}",
+            "summary": "={{ $json.summary }}",
+            "topics": "={{ $json.topics }}",
+            "created_at": "={{ $now.toISO() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "save-to-db",
+      "name": "Save to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1050, 300],
+      "credentials": {
+        "postgres": {
+          "id": "5",
+          "name": "PostgreSQL"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Google Drive Trigger": {
+      "main": [
+        [
+          {
+            "node": "Download File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download File": {
+      "main": [
+        [
+          {
+            "node": "Note Processing AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Note Processing AI": {
+      "main": [
+        [
+          {
+            "node": "Save Processed Notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Processed Notes": {
+      "main": [
+        [
+          {
+            "node": "Save to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Note Processor": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Note Processing AI",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Note Processing Prompt": {
+      "ai_promptTemplate": [
+        [
+          {
+            "node": "Note Processing AI",
+            "type": "ai_promptTemplate",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {
+    "node:Google Drive Trigger": {
+      "lastTimeChecked": null
+    }
+  },
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}
