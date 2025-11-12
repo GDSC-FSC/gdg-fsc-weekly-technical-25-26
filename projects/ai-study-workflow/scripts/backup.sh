@@ -2,12 +2,8 @@
 
 # Backup Script - Backup n8n database and workflows
 
-set -e
-
-# Color codes
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+# Source common utilities
+source "$(dirname "$0")/common.sh"
 
 echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║              n8n Database Backup Tool                      ║${NC}"
@@ -15,56 +11,52 @@ echo -e "${GREEN}╚════════════════════
 echo ""
 
 # Load environment variables
-if [ -f "$(dirname "$0")/../config/.env" ]; then
-    source "$(dirname "$0")/../config/.env"
-else
-    echo "Error: .env file not found!"
+load_env || {
+    log_error ".env file not found!"
     exit 1
-fi
+}
 
-# Create backups directory
-BACKUP_DIR="$(dirname "$0")/../backups"
-mkdir -p "$BACKUP_DIR"
+# Ensure backup directory exists
+ensure_backup_dir
 
 # Generate backup filename with timestamp
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+TIMESTAMP=$(get_timestamp)
 BACKUP_FILE="$BACKUP_DIR/n8n_backup_$TIMESTAMP.sql"
 
-echo "Creating database backup..."
+log_info "Creating database backup..."
 echo "Project: $PROJECT_ID"
 echo "Instance: n8n-db"
 echo "Database: n8n"
 echo ""
 
-# Export database to Cloud Storage bucket (optional, requires bucket)
-# For now, we'll create a local export via Cloud SQL proxy
+# Check if Cloud SQL instance exists
+if ! check_sql_instance "n8n-db"; then
+    log_error "Cloud SQL instance 'n8n-db' not found"
+    exit 1
+fi
 
 # Option 1: Using gcloud sql export (requires Cloud Storage bucket)
-read -p "Do you have a Cloud Storage bucket for backups? (yes/no): " -r
-echo
-
-if [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
-    read -p "Enter bucket name (e.g., gs://my-backup-bucket): " BUCKET_NAME
+if confirm "Do you have a Cloud Storage bucket for backups?"; then
+    BUCKET_NAME=$(prompt_input "Enter bucket name (e.g., gs://my-backup-bucket)")
     
     EXPORT_FILE="$BUCKET_NAME/n8n_backup_$TIMESTAMP.sql"
     
-    echo "Exporting database to Cloud Storage..."
+    log_info "Exporting database to Cloud Storage..."
     gcloud sql export sql n8n-db "$EXPORT_FILE" \
         --database=n8n \
         --project=$PROJECT_ID
     
-    echo -e "${GREEN}✓ Database exported to: $EXPORT_FILE${NC}"
+    log_success "Database exported to: $EXPORT_FILE"
     
     # Download to local
-    read -p "Download backup to local machine? (yes/no): " -r
-    if [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+    if confirm "Download backup to local machine?"; then
         gsutil cp "$EXPORT_FILE" "$BACKUP_FILE"
         gzip "$BACKUP_FILE"
-        echo -e "${GREEN}✓ Backup downloaded to: ${BACKUP_FILE}.gz${NC}"
+        log_success "Backup downloaded to: ${BACKUP_FILE}.gz"
     fi
 else
     # Option 2: Manual backup instructions
-    echo -e "${YELLOW}Manual Backup Instructions:${NC}"
+    log_warning "Manual Backup Instructions:"
     echo ""
     echo "1. Install Cloud SQL Proxy:"
     echo "   https://cloud.google.com/sql/docs/postgres/connect-admin-proxy"
@@ -83,33 +75,29 @@ fi
 # Backup workflows via API (if n8n is accessible)
 if [ ! -z "$N8N_URL" ]; then
     echo ""
-    read -p "Do you want to backup workflows via n8n API? (requires API key) (yes/no): " -r
-    
-    if [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
-        read -p "Enter your n8n API key: " N8N_API_KEY
+    if confirm "Do you want to backup workflows via n8n API? (requires API key)"; then
+        N8N_API_KEY=$(prompt_input "Enter your n8n API key")
         
         WORKFLOWS_BACKUP="$BACKUP_DIR/workflows_$TIMESTAMP.json"
         
-        echo "Fetching workflows from n8n..."
-        curl -X GET "$N8N_URL/api/v1/workflows" \
+        log_info "Fetching workflows from n8n..."
+        if curl -X GET "$N8N_URL/api/v1/workflows" \
             -H "X-N8N-API-KEY: $N8N_API_KEY" \
             -H "Accept: application/json" \
-            -o "$WORKFLOWS_BACKUP"
-        
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}✓ Workflows backed up to: $WORKFLOWS_BACKUP${NC}"
+            -o "$WORKFLOWS_BACKUP"; then
+            log_success "Workflows backed up to: $WORKFLOWS_BACKUP"
         else
-            echo "Failed to backup workflows"
+            log_error "Failed to backup workflows"
         fi
     fi
 fi
 
 echo ""
-echo -e "${GREEN}Backup process complete!${NC}"
+log_success "Backup process complete!"
 echo ""
 echo "Backup location: $BACKUP_DIR"
 echo ""
-echo -e "${YELLOW}Remember to:${NC}"
+log_warning "Remember to:"
 echo "  - Store backups in a secure location"
 echo "  - Keep multiple versions"
 echo "  - Test restoration periodically"

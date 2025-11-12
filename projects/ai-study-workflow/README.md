@@ -42,44 +42,69 @@ Before starting, ensure you have:
 
 ## 🚀 Quick Start
 
-### 1. Clone and Setup
+### Option 1: Interactive Setup Wizard (Recommended for Workshops)
+
+The easiest way to get started:
 
 ```bash
-cd projects/ai-study-workflow
-chmod +x scripts/*.sh
+./setup.sh
 ```
 
-### 2. Deploy to Google Cloud Run
+This interactive wizard will:
+- ✅ Check prerequisites automatically
+- ✅ Guide you through configuration
+- ✅ Verify billing and authentication
+- ✅ Offer both local and cloud deployment options
+- ✅ Provide clear error messages and fixes
+
+### Option 2: Manual Setup
+
+1. **Check Your System**
 
 ```bash
-# Run the complete setup script
+# Run diagnostics to catch issues early
+./scripts/diagnose.sh
+```
+
+2. **Deploy to Cloud**
+
+```bash
+# Complete automated deployment
 ./scripts/deploy.sh
 ```
 
-This will:
-1. Install and configure gcloud CLI
-2. Create a new GCP project
-3. Enable required APIs
-4. Setup PostgreSQL database
-5. Configure secrets
-6. Deploy n8n to Cloud Run
+**OR** deploy step-by-step:
 
-### 3. Access Your n8n Instance
-
-After deployment, you'll receive a URL like:
-```
-https://n8n-xxxxx.us-central1.run.app
+```bash
+./scripts/01-setup-gcloud.sh      # Install gcloud CLI
+./scripts/02-create-project.sh    # Create GCP project
+./scripts/03-setup-database.sh    # Setup Cloud SQL
+./scripts/04-deploy-n8n.sh        # Deploy to Cloud Run
 ```
 
-Open this URL and create your owner account.
+### 3. Access Your Instance
 
-### 4. Configure Gemini API
+After deployment, open the provided URL and create your owner account.
 
-1. Go to [Google AI Studio](https://aistudio.google.com/app/api-keys)
-2. Create an API key
-3. In n8n, go to **Credentials** → **Add Credential**
-4. Search for "Google Gemini (PaLM) API"
-5. Paste your API key
+## 🛠️ New Workshop Features
+
+### Automatic Error Recovery
+
+The deployment scripts now include:
+
+- **🔄 Automatic Retries**: Cloud Run deployment retries up to 3 times if region initialization fails
+- **✅ Billing Verification**: Interactive billing check before API enablement  
+- **🔍 Pre-flight Checks**: Validates prerequisites before starting deployment
+- **🩺 Diagnostic Tool**: Run `./scripts/diagnose.sh` to detect and fix common issues automatically
+
+### Common Issues - Now Auto-Fixed!
+
+| Issue | Old Behavior | New Behavior |
+|-------|--------------|--------------|
+| Port 5678 conflict | Manual fix required | `diagnose.sh` auto-detects and fixes |
+| Region initialization timeout | Deployment fails | Automatic retry with backoff |
+| Billing not enabled | Cryptic error | Interactive verification with guide |
+| Wrong GCP account | Deployment fails | Clear error with account info |
 
 ## 📚 Study Workflow Templates
 
@@ -170,7 +195,40 @@ docker-compose up -d
 
 Access n8n locally at: `http://localhost:5678`
 
-## 📖 Usage Examples
+## � Troubleshooting
+
+### Quick Diagnostics
+
+Run the diagnostic tool to automatically detect and fix issues:
+
+```bash
+./scripts/diagnose.sh
+```
+
+This will check and fix:
+- System prerequisites
+- Docker port conflicts
+- GCP authentication
+- Project and billing status
+- Cloud resource health
+- Local environment issues
+
+### Common Workshop Issues
+
+| Problem | Quick Fix |
+|---------|-----------|
+| Port 5678 in use | `./scripts/diagnose.sh` (auto-stops conflicts) |
+| "Resource readiness exceeded" | Wait 30s, script auto-retries |
+| Can't find project | Check account: `gcloud config get-value account` |
+| Billing errors | Script now verifies interactively |
+| Docker not starting | `docker system prune -a` |
+
+For detailed solutions, see:
+- 📖 **[Workshop Guide](docs/WORKSHOP_GUIDE.md)** - Comprehensive workshop troubleshooting
+- 📖 **[Troubleshooting Guide](docs/TROUBLESHOOTING.md)** - Detailed error solutions
+- 📖 **[Deployment Guide](docs/DEPLOYMENT.md)** - Step-by-step instructions
+
+## �📖 Usage Examples
 
 ### Example 1: Study Material Summarizer
 

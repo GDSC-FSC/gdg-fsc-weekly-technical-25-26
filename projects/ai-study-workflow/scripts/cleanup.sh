@@ -2,108 +2,95 @@
 
 # Cleanup Script - Remove all Google Cloud Resources
 
-set -e
-
-# Color codes
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-GREEN='\033[0;32m'
-NC='\033[0m'
+# Source common utilities
+source "$(dirname "$0")/common.sh"
 
 echo -e "${RED}╔════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${RED}║          ⚠️  RESOURCE CLEANUP WARNING ⚠️                   ║${NC}"
 echo -e "${RED}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "${YELLOW}This script will DELETE the following resources:${NC}"
+log_warning "This script will DELETE the following resources:"
 echo "  - Cloud Run service (n8n)"
 echo "  - Cloud SQL database (n8n-db)"
 echo "  - Secret Manager secrets"
 echo "  - Service accounts"
 echo "  - Optionally: The entire GCP project"
 echo ""
-echo -e "${RED}THIS ACTION CANNOT BE UNDONE!${NC}"
+log_error "THIS ACTION CANNOT BE UNDONE!"
 echo ""
 
 # Load environment variables
-if [ -f "$(dirname "$0")/../config/.env" ]; then
-    source "$(dirname "$0")/../config/.env"
-else
-    echo -e "${YELLOW}No .env file found. Using current gcloud project.${NC}"
+load_env || {
+    log_warning "No .env file found. Using current gcloud project."
     PROJECT_ID=$(gcloud config get-value project)
     REGION="us-central1"
-fi
+}
 
 echo "Project ID: $PROJECT_ID"
 echo "Region: $REGION"
 echo ""
 
-read -p "Are you sure you want to continue? (yes/no): " -r
-if [[ ! $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+if ! confirm "Are you sure you want to continue?" "no"; then
     echo "Cleanup cancelled."
     exit 0
 fi
 
-echo ""
-echo -e "${YELLOW}Starting cleanup...${NC}"
+log_step "Starting cleanup..."
 
 # Set project
 gcloud config set project "$PROJECT_ID"
 
 # Delete Cloud Run service
-echo "Deleting Cloud Run service..."
-if gcloud run services describe n8n --region=$REGION &> /dev/null; then
+log_info "Deleting Cloud Run service..."
+if check_cloud_run_service "n8n" "$REGION"; then
     gcloud run services delete n8n --region=$REGION --quiet
-    echo "✓ Cloud Run service deleted"
+    log_success "Cloud Run service deleted"
 else
-    echo "Cloud Run service not found (already deleted)"
+    log_info "Cloud Run service not found (already deleted)"
 fi
 
 # Delete Cloud SQL instance
-echo "Deleting Cloud SQL database..."
-if gcloud sql instances describe n8n-db &> /dev/null; then
+log_info "Deleting Cloud SQL database..."
+if check_sql_instance "n8n-db"; then
     gcloud sql instances delete n8n-db --quiet
-    echo "✓ Cloud SQL instance deleted"
+    log_success "Cloud SQL instance deleted"
 else
-    echo "Cloud SQL instance not found (already deleted)"
+    log_info "Cloud SQL instance not found (already deleted)"
 fi
 
 # Delete secrets
-echo "Deleting secrets..."
-if gcloud secrets describe n8n-db-password &> /dev/null; then
-    gcloud secrets delete n8n-db-password --quiet
-    echo "✓ Database password secret deleted"
-fi
-
-if gcloud secrets describe n8n-encryption-key &> /dev/null; then
-    gcloud secrets delete n8n-encryption-key --quiet
-    echo "✓ Encryption key secret deleted"
-fi
+log_info "Deleting secrets..."
+for secret in "n8n-db-password" "n8n-encryption-key"; do
+    if check_secret "$secret"; then
+        gcloud secrets delete "$secret" --quiet
+        log_success "Secret '$secret' deleted"
+    fi
+done
 
 # Delete service account
-echo "Deleting service account..."
+log_info "Deleting service account..."
 SERVICE_ACCOUNT_EMAIL="n8n-service-account@$PROJECT_ID.iam.gserviceaccount.com"
-if gcloud iam service-accounts describe $SERVICE_ACCOUNT_EMAIL &> /dev/null; then
+if check_service_account "$SERVICE_ACCOUNT_EMAIL"; then
     gcloud iam service-accounts delete $SERVICE_ACCOUNT_EMAIL --quiet
-    echo "✓ Service account deleted"
+    log_success "Service account deleted"
 else
-    echo "Service account not found (already deleted)"
+    log_info "Service account not found (already deleted)"
 fi
 
 echo ""
-echo -e "${GREEN}✓ Resource cleanup complete!${NC}"
+log_success "Resource cleanup complete!"
 echo ""
 
 # Ask about deleting the project
-read -p "Do you want to delete the entire project? (yes/no): " -r
-if [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
-    echo "Deleting project $PROJECT_ID..."
+if confirm "Do you want to delete the entire project?" "no"; then
+    log_info "Deleting project $PROJECT_ID..."
     gcloud projects delete "$PROJECT_ID" --quiet
-    echo -e "${GREEN}✓ Project deleted${NC}"
+    log_success "Project deleted"
 else
-    echo "Project kept. You can delete it later from the GCP Console."
+    log_info "Project kept. You can delete it later from the GCP Console."
 fi
 
 echo ""
-echo -e "${GREEN}Cleanup finished!${NC}"
+log_success "Cleanup finished!"
 echo ""
-echo "Note: It may take a few minutes for all resources to be fully removed."
+log_info "Note: It may take a few minutes for all resources to be fully removed."

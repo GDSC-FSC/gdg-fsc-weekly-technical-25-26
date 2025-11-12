@@ -2,29 +2,29 @@
 
 # Step 3: Setup Database and Secrets
 
-set -e
+# Source common utilities
+source "$(dirname "$0")/common.sh"
 
-echo "Setting up Cloud SQL database and secrets..."
+log_header "Cloud SQL Database and Secrets Setup"
 
 # Load environment variables
-if [ -f "$(dirname "$0")/../config/.env" ]; then
-    source "$(dirname "$0")/../config/.env"
-fi
+load_env || {
+    log_error "Failed to load environment variables"
+    exit 1
+}
 
-# Generate secure passwords and encryption keys
-echo "Generating secure credentials..."
-export N8N_DB_PASSWORD=$(openssl rand -base64 16)
-export N8N_ENCRYPTION_KEY=$(openssl rand -base64 42)
-
-echo "✓ Credentials generated"
+# Generate secure credentials
+log_info "Generating secure credentials..."
+export N8N_DB_PASSWORD=$(generate_secure_password 16)
+export N8N_ENCRYPTION_KEY=$(generate_secure_password 42)
+log_success "Credentials generated"
 
 # Create Cloud SQL instance
-echo "Creating Cloud SQL PostgreSQL instance..."
-echo "⏳ This may take 10-15 minutes..."
+log_step "Creating Cloud SQL PostgreSQL instance"
+log_warning "This may take 10-15 minutes..."
 
-# Check if instance already exists
-if gcloud sql instances describe n8n-db --project=$PROJECT_ID &> /dev/null; then
-    echo "✓ Cloud SQL instance 'n8n-db' already exists"
+if check_sql_instance "n8n-db"; then
+    log_info "Using existing Cloud SQL instance"
 else
     gcloud sql instances create n8n-db \
         --database-version=POSTGRES_13 \
@@ -35,23 +35,22 @@ else
         --no-backup \
         --storage-type=HDD
     
-    echo "✓ Cloud SQL instance created"
+    log_success "Cloud SQL instance created"
 fi
 
 # Create database
-echo "Creating database..."
+log_info "Creating database..."
 if gcloud sql databases describe n8n --instance=n8n-db &> /dev/null; then
-    echo "✓ Database 'n8n' already exists"
+    log_info "Database 'n8n' already exists"
 else
     gcloud sql databases create n8n --instance=n8n-db
-    echo "✓ Database created"
+    log_success "Database created"
 fi
 
 # Create database user
-echo "Creating database user..."
+log_info "Creating database user..."
 if gcloud sql users list --instance=n8n-db | grep -q "n8n-user"; then
-    echo "✓ User 'n8n-user' already exists"
-    # Update password for existing user
+    log_info "User 'n8n-user' already exists, updating password..."
     gcloud sql users set-password n8n-user \
         --instance=n8n-db \
         --password=$N8N_DB_PASSWORD
@@ -59,39 +58,39 @@ else
     gcloud sql users create n8n-user \
         --instance=n8n-db \
         --password=$N8N_DB_PASSWORD
-    echo "✓ Database user created"
+    log_success "Database user created"
 fi
 
 # Store secrets in Secret Manager
-echo "Storing secrets in Secret Manager..."
+log_step "Storing secrets in Secret Manager"
 
 # Store database password
-if gcloud secrets describe n8n-db-password &> /dev/null; then
-    echo "✓ Secret 'n8n-db-password' already exists, updating..."
+if check_secret "n8n-db-password"; then
+    log_info "Updating secret 'n8n-db-password'..."
     echo $N8N_DB_PASSWORD | gcloud secrets versions add n8n-db-password --data-file=-
 else
     echo $N8N_DB_PASSWORD | gcloud secrets create n8n-db-password \
         --data-file=- \
         --replication-policy="automatic"
-    echo "✓ Database password stored in Secret Manager"
+    log_success "Database password stored in Secret Manager"
 fi
 
 # Store encryption key
-if gcloud secrets describe n8n-encryption-key &> /dev/null; then
-    echo "✓ Secret 'n8n-encryption-key' already exists, updating..."
+if check_secret "n8n-encryption-key"; then
+    log_info "Updating secret 'n8n-encryption-key'..."
     echo $N8N_ENCRYPTION_KEY | gcloud secrets versions add n8n-encryption-key --data-file=-
 else
     echo $N8N_ENCRYPTION_KEY | gcloud secrets create n8n-encryption-key \
         --data-file=- \
         --replication-policy="automatic"
-    echo "✓ Encryption key stored in Secret Manager"
+    log_success "Encryption key stored in Secret Manager"
 fi
 
 # Update .env file with generated credentials
-sed -i "s|N8N_DB_PASSWORD=.*|N8N_DB_PASSWORD=$N8N_DB_PASSWORD|" "$(dirname "$0")/../config/.env"
-sed -i "s|N8N_ENCRYPTION_KEY=.*|N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY|" "$(dirname "$0")/../config/.env"
+save_env_var "N8N_DB_PASSWORD" "$N8N_DB_PASSWORD"
+save_env_var "N8N_ENCRYPTION_KEY" "$N8N_ENCRYPTION_KEY"
 
-echo "✓ Database and secrets setup complete!"
+log_success "Database and secrets setup complete!"
 echo ""
 echo "Database connection details:"
 echo "  Instance: n8n-db"

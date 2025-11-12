@@ -2,41 +2,37 @@
 
 # Step 1: Install and Configure gcloud CLI
 
-set -e
+# Source common utilities
+source "$(dirname "$0")/common.sh"
 
-echo "Setting up gcloud CLI..."
+log_header "gcloud CLI Setup"
 
 # Check if gcloud is already installed
-if command -v gcloud &> /dev/null; then
-    echo "✓ gcloud CLI is already installed"
+if check_command gcloud "gcloud CLI"; then
     gcloud version
 else
-    echo "Installing gcloud CLI..."
+    log_info "Installing gcloud CLI..."
     
     # Install gcloud CLI
     curl https://sdk.cloud.google.com | bash
     exec -l $SHELL
     
-    echo "✓ gcloud CLI installed successfully"
+    log_success "gcloud CLI installed successfully"
 fi
 
 # Check if user is already authenticated
-if gcloud auth list --filter=status:ACTIVE --format="value(account)" &> /dev/null; then
+if check_gcloud_auth; then
     ACTIVE_ACCOUNT=$(gcloud auth list --filter=status:ACTIVE --format="value(account)")
-    if [ -n "$ACTIVE_ACCOUNT" ]; then
-        echo "✓ Already authenticated as: $ACTIVE_ACCOUNT"
-        read -p "Do you want to use this account? (y/n) " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            gcloud auth login
-        fi
+    if confirm "Do you want to use this account ($ACTIVE_ACCOUNT)?" "yes"; then
+        log_success "Using existing authentication"
     else
+        log_info "Logging in to Google Cloud..."
         gcloud auth login
     fi
 else
     # Authenticate with Google Cloud
-    echo "Logging in to Google Cloud..."
+    log_info "Logging in to Google Cloud..."
     gcloud auth login
 fi
 
-echo "✓ gcloud CLI setup complete!"
+log_success "gcloud CLI setup complete!"

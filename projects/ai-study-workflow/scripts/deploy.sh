@@ -3,92 +3,80 @@
 # AI Study Workflow - Complete Deployment Script
 # This script orchestrates the complete deployment of n8n on Google Cloud Run
 
-set -e
-
-# Color codes for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+# Source common utilities
+source "$(dirname "$0")/common.sh"
 
 echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║   AI Study Workflow - n8n Cloud Run Deployment            ║${NC}"
 echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# Get the script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Pre-flight checks
+log_header "Pre-Deployment Checks"
 
-# Check if we're in the right directory
-if [ ! -f "$SCRIPT_DIR/01-setup-gcloud.sh" ]; then
-    echo -e "${RED}Error: Deployment scripts not found!${NC}"
-    echo "Please run this script from the ai-study-workflow directory"
+# Check if gcloud is installed
+if ! check_command gcloud; then
+    log_error "gcloud CLI not found. Please run Step 1 first or install manually."
+    log_info "Installation: https://cloud.google.com/sdk/docs/install"
     exit 1
 fi
 
-# Function to display step
-step() {
-    echo ""
-    echo -e "${YELLOW}▶ $1${NC}"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-}
+# Check if user is authenticated
+if ! check_gcloud_auth; then
+    log_error "Not authenticated with gcloud. Please run Step 1 first."
+    log_info "Or run: gcloud auth login"
+    exit 1
+fi
 
-# Function to display success
-success() {
-    echo -e "${GREEN}✓ $1${NC}"
-}
+# Check if Docker is needed for local development
+if [ "$1" == "--local" ]; then
+    if ! check_command docker; then
+        log_error "Docker is required for local development"
+        log_info "Installation: https://docs.docker.com/get-docker/"
+        exit 1
+    fi
+    
+    if ! check_command docker-compose; then
+        log_error "Docker Compose is required for local development"
+        log_info "Installation: https://docs.docker.com/compose/install/"
+        exit 1
+    fi
+fi
 
-# Function to display error
-error() {
-    echo -e "${RED}✗ $1${NC}"
+log_success "Pre-deployment checks passed"
+echo ""
+
+# Function to run step with error handling
+run_step() {
+    local step_num="$1"
+    local step_name="$2"
+    local script="$3"
+    
+    log_step "Step $step_num/4: $step_name"
+    
+    if bash "$SCRIPT_DIR/$script"; then
+        log_success "$step_name completed"
+        return 0
+    else
+        log_error "$step_name failed"
+        return 1
+    fi
 }
 
 # Step 1: Setup gcloud CLI
-step "Step 1/4: Setting up gcloud CLI"
-bash "$SCRIPT_DIR/01-setup-gcloud.sh"
-if [ $? -eq 0 ]; then
-    success "gcloud CLI setup completed"
-else
-    error "gcloud CLI setup failed"
-    exit 1
-fi
+run_step 1 "Setting up gcloud CLI" "01-setup-gcloud.sh" || exit 1
 
 # Step 2: Create GCP project
-step "Step 2/4: Creating GCP project and enabling APIs"
-bash "$SCRIPT_DIR/02-create-project.sh"
-if [ $? -eq 0 ]; then
-    success "GCP project created successfully"
-else
-    error "GCP project creation failed"
-    exit 1
-fi
+run_step 2 "Creating GCP project and enabling APIs" "02-create-project.sh" || exit 1
 
 # Load environment variables
-if [ -f "$SCRIPT_DIR/../config/.env" ]; then
-    source "$SCRIPT_DIR/../config/.env"
-else
-    echo -e "${YELLOW}Note: .env file not found. Using defaults.${NC}"
-fi
+load_env
 
 # Step 3: Setup database and secrets
-step "Step 3/4: Setting up Cloud SQL database and secrets"
-bash "$SCRIPT_DIR/03-setup-database.sh"
-if [ $? -eq 0 ]; then
-    success "Database and secrets configured"
-else
-    error "Database setup failed"
-    exit 1
-fi
+run_step 3 "Setting up Cloud SQL database and secrets" "03-setup-database.sh" || exit 1
 
 # Step 4: Deploy n8n to Cloud Run
-step "Step 4/4: Deploying n8n to Cloud Run"
-bash "$SCRIPT_DIR/04-deploy-n8n.sh"
-if [ $? -eq 0 ]; then
-    success "n8n deployed successfully!"
-else
-    error "n8n deployment failed"
-    exit 1
-fi
+run_step 4 "Deploying n8n to Cloud Run" "04-deploy-n8n.sh" || exit 1
 
 echo ""
 echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
