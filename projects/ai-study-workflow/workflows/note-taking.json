@@ -1,24 +1,47 @@
 {
-  "name": "Smart Note-Taking Automation",
+  "name": "Enhanced Smart Note-Taking Automation",
   "nodes": [
     {
       "parameters": {
         "resource": "file",
         "operation": "upload",
         "resolveData": true,
-        "options": {}
+        "options": {
+          "driveId": {
+            "mode": "list",
+            "value": ""
+          }
+        }
       },
       "id": "google-drive-trigger",
       "name": "Google Drive Trigger",
       "type": "n8n-nodes-base.googleDriveTrigger",
       "typeVersion": 1,
-      "position": [250, 300],
+      "position": [250, 400],
       "credentials": {
         "googleDriveOAuth2Api": {
           "id": "4",
           "name": "Google Drive"
         }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.mimeType }}",
+              "operation": "regex",
+              "value2": "^(application/vnd.google-apps.document|text/plain|application/pdf|application/vnd.openxmlformats-officedocument.wordprocessingml.document)$"
+            }
+          ]
+        }
+      },
+      "id": "validate-file-type",
+      "name": "Validate File Type",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [450, 400]
     },
     {
       "parameters": {
@@ -36,7 +59,7 @@
       "name": "Download File",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
-      "position": [450, 300],
+      "position": [650, 300],
       "credentials": {
         "googleDriveOAuth2Api": {
           "id": "4",
@@ -46,27 +69,41 @@
     },
     {
       "parameters": {
-        "options": {}
+        "jsCode": "// Extract and enrich metadata\nconst item = $input.item.json;\nconst content = item.data ? Buffer.from(item.data, 'base64').toString('utf-8') : '';\n\n// Calculate metadata\nconst wordCount = content.split(/\\s+/).filter(w => w.length > 0).length;\nconst readingTime = Math.ceil(wordCount / 200); // avg 200 words/min\nconst charCount = content.length;\n\n// Extract potential categories from content\nconst categories = [];\nconst categoryKeywords = {\n  'Mathematics': ['equation', 'theorem', 'proof', 'formula', 'calculate'],\n  'Science': ['experiment', 'hypothesis', 'research', 'study', 'observation'],\n  'Programming': ['code', 'function', 'algorithm', 'debug', 'compile'],\n  'Business': ['strategy', 'market', 'revenue', 'analysis', 'customer'],\n  'History': ['century', 'historical', 'period', 'era', 'ancient'],\n  'Literature': ['author', 'novel', 'poem', 'narrative', 'character']\n};\n\nconst lowerContent = content.toLowerCase();\nfor (const [category, keywords] of Object.entries(categoryKeywords)) {\n  if (keywords.some(kw => lowerContent.includes(kw))) {\n    categories.push(category);\n  }\n}\n\nreturn {\n  id: item.id,\n  name: item.name,\n  content: content,\n  metadata: {\n    wordCount,\n    readingTime,\n    charCount,\n    uploadedAt: item.createdTime,\n    mimeType: item.mimeType,\n    suggestedCategories: categories\n  }\n};"
+      },
+      "id": "extract-metadata",
+      "name": "Extract Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are an expert note organization assistant specializing in academic and professional note-taking. You excel at identifying key concepts, creating meaningful summaries, and generating helpful study materials."
+        }
       },
       "id": "ai-agent",
       "name": "Note Processing AI",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 1.7,
-      "position": [650, 300]
+      "position": [1050, 300]
     },
     {
       "parameters": {
         "model": "gemini-2.0-flash-exp",
         "options": {
-          "temperature": 0.4,
-          "maxOutputTokens": 8192
+          "temperature": 0.3,
+          "maxOutputTokens": 8192,
+          "topP": 0.95,
+          "topK": 40
         }
       },
       "id": "gemini-model",
       "name": "Gemini Note Processor",
       "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
       "typeVersion": 1,
-      "position": [650, 150],
+      "position": [1050, 100],
       "credentials": {
         "googlePalmApi": {
           "id": "1",
@@ -77,13 +114,23 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "You are a note organization assistant. Process the following notes:\n\n{{ $json.content }}\n\nPerform these tasks:\n1. Organize notes by topics and subtopics\n2. Extract key concepts and definitions\n3. Create a summary (max 200 words)\n4. Identify important formulas or equations\n5. Suggest related topics to study\n6. Generate 5 review questions\n7. Format in markdown with proper headers\n\nFile name: {{ $json.name }}\nDate: {{ $now.format('YYYY-MM-DD') }}"
+        "text": "# Note Processing Task\n\n## Source Information\n**File:** {{ $json.name }}\n**Date:** {{ $now.format('YYYY-MM-DD HH:mm') }}\n**Word Count:** {{ $json.metadata.wordCount }}\n**Reading Time:** {{ $json.metadata.readingTime }} minutes\n**Suggested Categories:** {{ $json.metadata.suggestedCategories.join(', ') }}\n\n## Raw Notes\n```\n{{ $json.content }}\n```\n\n## Processing Instructions\n\nAnalyze and restructure these notes with the following sections:\n\n### 1. Executive Summary\n- Provide a 150-200 word overview\n- Highlight the main thesis or purpose\n- Include key takeaways\n\n### 2. Hierarchical Organization\n- Create a logical topic hierarchy\n- Use main topics and subtopics\n- Add bullet points for key details\n\n### 3. Key Concepts & Definitions\n- Extract and define important terms\n- Provide context for each concept\n- Link related concepts\n\n### 4. Important Formulas/Equations (if applicable)\n- List all mathematical expressions\n- Explain variables and constants\n- Provide example applications\n\n### 5. Visual Elements (if applicable)\n- Describe any diagrams, charts, or tables\n- Suggest visual aids that could enhance understanding\n\n### 6. Related Topics\n- Identify 5-7 related subjects\n- Explain connections\n- Suggest resources for deeper learning\n\n### 7. Review Questions\n- Generate 5 thoughtful review questions\n- Mix difficulty levels (recall, application, analysis)\n- Include brief answer hints\n\n### 8. Action Items\n- Extract any tasks or follow-ups\n- Prioritize by importance\n\n### 9. Tags\n- Generate 5-10 relevant tags for categorization\n\n## Output Format\nReturn the processed notes in clean markdown format with proper headers, formatting, and structure. Ensure readability and logical flow."
       },
-      "id": "prompt",
-      "name": "Note Processing Prompt",
+      "id": "enhanced-prompt",
+      "name": "Enhanced Processing Prompt",
       "type": "@n8n/n8n-nodes-langchain.promptTemplate",
       "typeVersion": 1,
-      "position": [850, 150]
+      "position": [1250, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI output and structure data\nconst aiOutput = $input.item.json.output || $input.item.json.text || '';\nconst metadata = $input.item.json.metadata || {};\n\n// Extract sections using regex patterns\nconst extractSection = (text, sectionName) => {\n  const pattern = new RegExp(`###?\\\\s*\\\\d*\\\\.?\\\\s*${sectionName}[^#]*?([\\\\s\\\\S]*?)(?=###|$)`, 'i');\n  const match = text.match(pattern);\n  return match ? match[1].trim() : '';\n};\n\n// Extract tags\nconst tagsSection = extractSection(aiOutput, 'Tags');\nconst tags = tagsSection.match(/[-\\w]+/g) || [];\n\n// Extract summary\nconst summary = extractSection(aiOutput, 'Executive Summary');\n\n// Extract questions\nconst questionsSection = extractSection(aiOutput, 'Review Questions');\nconst questions = questionsSection.split(/\\d+\\./).filter(q => q.trim().length > 0);\n\n// Extract topics\nconst topicsSection = extractSection(aiOutput, 'Related Topics');\nconst topics = topicsSection.split(/[-•\\n]/).filter(t => t.trim().length > 10);\n\nreturn {\n  id: $input.item.json.id,\n  name: $input.item.json.name,\n  processedContent: aiOutput,\n  summary: summary.substring(0, 500),\n  tags: tags,\n  topics: topics.map(t => t.trim()),\n  questions: questions.map(q => q.trim()),\n  metadata: {\n    ...metadata,\n    processedAt: new Date().toISOString(),\n    processingVersion: '2.0'\n  }\n};"
+      },
+      "id": "parse-ai-output",
+      "name": "Parse AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 300]
     },
     {
       "parameters": {
@@ -93,17 +140,29 @@
           "value": "root",
           "mode": "list"
         },
-        "name": "={{ $json.name.replace(/\\.[^/.]+$/, '') }}_processed.md",
+        "name": "={{ $json.name.replace(/\\.[^/.]+$/, '') }}_processed_{{ $now.format('YYYYMMDD_HHmmss') }}.md",
         "options": {
           "appProperties": {
             "property": [
               {
                 "key": "processedBy",
-                "value": "n8n-ai-workflow"
+                "value": "n8n-ai-workflow-v2"
               },
               {
                 "key": "originalFile",
                 "value": "={{ $json.id }}"
+              },
+              {
+                "key": "processingDate",
+                "value": "={{ $now.toISO() }}"
+              },
+              {
+                "key": "tags",
+                "value": "={{ $json.tags.join(',') }}"
+              },
+              {
+                "key": "wordCount",
+                "value": "={{ $json.metadata.wordCount }}"
               }
             ]
           }
@@ -113,7 +172,7 @@
       "name": "Save Processed Notes",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
-      "position": [850, 300],
+      "position": [1450, 300],
       "credentials": {
         "googleDriveOAuth2Api": {
           "id": "4",
@@ -129,24 +188,88 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
+            "file_id": "={{ $json.id }}",
             "title": "={{ $json.name }}",
             "content": "={{ $json.processedContent }}",
             "summary": "={{ $json.summary }}",
-            "topics": "={{ $json.topics }}",
-            "created_at": "={{ $now.toISO() }}"
+            "tags": "={{ JSON.stringify($json.tags) }}",
+            "topics": "={{ JSON.stringify($json.topics) }}",
+            "questions": "={{ JSON.stringify($json.questions) }}",
+            "word_count": "={{ $json.metadata.wordCount }}",
+            "reading_time": "={{ $json.metadata.readingTime }}",
+            "created_at": "={{ $now.toISO() }}",
+            "metadata": "={{ JSON.stringify($json.metadata) }}"
           }
         },
-        "options": {}
+        "options": {
+          "queryBatching": "transaction"
+        }
       },
       "id": "save-to-db",
       "name": "Save to Database",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1050, 300],
+      "position": [1650, 300],
       "credentials": {
         "postgres": {
           "id": "5",
           "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "✅ **Note Processing Complete**\n\n📄 File: {{ $json.name }}\n📊 Word Count: {{ $json.metadata.wordCount }}\n⏱️ Reading Time: {{ $json.metadata.readingTime }} min\n🏷️ Tags: {{ $json.tags.join(', ') }}\n📅 Processed: {{ $now.format('YYYY-MM-DD HH:mm') }}\n\n💾 Saved to database and Google Drive",
+        "additionalFields": {
+          "parseMode": "Markdown"
+        }
+      },
+      "id": "send-notification",
+      "name": "Send Notification",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1850, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "6",
+          "name": "Telegram"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## ⚠️ Invalid File Type\n\nThe uploaded file cannot be processed.\n\n**File:** {{ $json.name }}\n**Type:** {{ $json.mimeType }}\n\n**Supported formats:**\n- Google Docs\n- Plain text (.txt)\n- PDF files\n- Word documents (.docx)",
+        "height": 80,
+        "width": 150
+      },
+      "id": "invalid-file-notice",
+      "name": "Invalid File Notice",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [650, 520]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "❌ **File Processing Failed**\n\n📄 File: {{ $json.name }}\n🚫 Reason: Unsupported file type\n📋 Type: {{ $json.mimeType }}\n\nPlease upload a supported format (Google Docs, .txt, .pdf, .docx)",
+        "additionalFields": {
+          "parseMode": "Markdown"
+        }
+      },
+      "id": "error-notification",
+      "name": "Error Notification",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [650, 600],
+      "credentials": {
+        "telegramApi": {
+          "id": "6",
+          "name": "Telegram"
         }
       }
     }
@@ -156,7 +279,25 @@
       "main": [
         [
           {
+            "node": "Validate File Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate File Type": {
+      "main": [
+        [
+          {
             "node": "Download File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Notification",
             "type": "main",
             "index": 0
           }
@@ -164,6 +305,17 @@
       ]
     },
     "Download File": {
+      "main": [
+        [
+          {
+            "node": "Extract Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Metadata": {
       "main": [
         [
           {
@@ -175,6 +327,17 @@
       ]
     },
     "Note Processing AI": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Output": {
       "main": [
         [
           {
@@ -196,6 +359,17 @@
         ]
       ]
     },
+    "Save to Database": {
+      "main": [
+        [
+          {
+            "node": "Send Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Gemini Note Processor": {
       "ai_languageModel": [
         [
@@ -207,7 +381,7 @@
         ]
       ]
     },
-    "Note Processing Prompt": {
+    "Enhanced Processing Prompt": {
       "ai_promptTemplate": [
         [
           {
@@ -220,15 +394,38 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler-workflow"
   },
   "staticData": {
     "node:Google Drive Trigger": {
       "lastTimeChecked": null
     }
   },
-  "tags": [],
+  "tags": [
+    {
+      "createdAt": "2025-01-15T10:00:00.000Z",
+      "updatedAt": "2025-01-15T10:00:00.000Z",
+      "id": "1",
+      "name": "AI"
+    },
+    {
+      "createdAt": "2025-01-15T10:00:00.000Z",
+      "updatedAt": "2025-01-15T10:00:00.000Z",
+      "id": "2",
+      "name": "Automation"
+    },
+    {
+      "createdAt": "2025-01-15T10:00:00.000Z",
+      "updatedAt": "2025-01-15T10:00:00.000Z",
+      "id": "3",
+      "name": "Notes"
+    }
+  ],
   "meta": {
-    "templateCredsSetupCompleted": true
+    "templateCredsSetupCompleted": true,
+    "instanceId": "n8n-smart-notes-v2"
   }
 }

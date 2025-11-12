@@ -1,37 +1,59 @@
 {
-  "name": "Smart Study Assistant",
+  "name": "Enhanced Smart Study Assistant",
   "nodes": [
     {
-      "parameters": {},
-      "id": "start-node",
-      "name": "When clicking 'Test workflow'",
-      "type": "n8n-nodes-base.manualTrigger",
-      "typeVersion": 1,
-      "position": [250, 300]
+      "parameters": {
+        "path": "study-chat",
+        "options": {},
+        "responseMode": "responseNode",
+        "httpMethod": "POST"
+      },
+      "id": "webhook-trigger",
+      "name": "Study Chat Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 400],
+      "webhookId": "study-chat-v2"
     },
     {
       "parameters": {
-        "options": {}
+        "jsCode": "// Extract and validate chat input\nconst body = $input.item.json.body || {};\n\n// Validate required fields\nif (!body.message || body.message.trim() === '') {\n  throw new Error('Message is required');\n}\n\n// Generate or use existing session ID\nconst sessionId = body.sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;\n\n// Extract user context\nconst userContext = {\n  sessionId: sessionId,\n  message: body.message.trim(),\n  userId: body.userId || 'anonymous',\n  timestamp: new Date().toISOString(),\n  \n  // Optional user profile\n  profile: {\n    name: body.userName || 'Student',\n    grade: body.grade || null,\n    subjects: body.subjects || [],\n    learningStyle: body.learningStyle || 'mixed',\n    difficulty: body.difficulty || 'medium'\n  },\n  \n  // Conversation context\n  context: {\n    topic: body.topic || null,\n    subject: body.subject || null,\n    intent: body.intent || 'general', // general, explain, quiz, homework, practice\n    language: body.language || 'en'\n  },\n  \n  // Feature flags\n  features: {\n    enableQuizGeneration: body.enableQuiz !== false,\n    enableWebSearch: body.enableSearch !== false,\n    enableVisuals: body.enableVisuals !== false,\n    enablePracticeProblems: body.enablePractice !== false\n  },\n  \n  // Message metadata\n  metadata: {\n    messageCount: body.messageCount || 1,\n    conversationStarted: body.conversationStarted || new Date().toISOString(),\n    lastActivity: new Date().toISOString()\n  }\n};\n\n// Add chatInput field for AI Agent\nuserContext.chatInput = body.message.trim();\n\nreturn { json: userContext };"
       },
-      "id": "ai-agent",
-      "name": "AI Study Agent",
+      "id": "process-input",
+      "name": "Process Chat Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 400]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message }}",
+        "options": {
+          "systemMessage": "=# AI Study Assistant - System Instructions\n\nYou are an expert AI tutor specializing in personalized education. Your role is to help students learn effectively through:\n\n## Core Capabilities\n1. **Concept Explanation**: Break down complex topics into digestible parts using analogies and examples\n2. **Problem Solving**: Guide students through problems step-by-step without giving direct answers\n3. **Quiz Generation**: Create targeted practice questions to test understanding\n4. **Study Planning**: Provide structured learning paths and study strategies\n5. **Homework Help**: Assist with assignments using the Socratic method\n6. **Exam Preparation**: Offer test-taking strategies and review techniques\n\n## Teaching Principles\n- **Socratic Method**: Ask leading questions to help students discover answers\n- **Scaffolding**: Build on existing knowledge progressively\n- **Active Learning**: Encourage practice and application\n- **Growth Mindset**: Frame mistakes as learning opportunities\n- **Differentiation**: Adapt explanations to student's level\n\n## Current Student Profile\n- **Name**: {{ $json.profile.name }}\n- **Grade Level**: {{ $json.profile.grade || 'Not specified' }}\n- **Subjects**: {{ $json.profile.subjects.join(', ') || 'Not specified' }}\n- **Learning Style**: {{ $json.profile.learningStyle }}\n- **Difficulty Preference**: {{ $json.profile.difficulty }}\n\n## Current Context\n- **Topic**: {{ $json.context.topic || 'General study' }}\n- **Subject**: {{ $json.context.subject || 'Multiple' }}\n- **Intent**: {{ $json.context.intent }}\n- **Session ID**: {{ $json.sessionId }}\n\n## Response Guidelines\n\n### For Explanations\n- Start with the big picture, then zoom into details\n- Use analogies relevant to student's age/interests\n- Include visual descriptions when helpful\n- Provide real-world applications\n- Check understanding with questions\n\n### For Problem Solving\n- Never give direct answers immediately\n- Ask \"What do you think?\" or \"What have you tried?\"\n- Break problems into smaller steps\n- Celebrate correct reasoning\n- Gently correct misconceptions\n\n### For Quizzes\n- Generate 3-5 questions at appropriate difficulty\n- Mix question types (multiple choice, short answer, application)\n- Provide immediate feedback\n- Explain why answers are correct/incorrect\n\n### For Study Planning\n- Create realistic, achievable goals\n- Include specific time estimates\n- Suggest evidence-based techniques (spaced repetition, active recall)\n- Prioritize based on difficulty and deadlines\n\n## Available Tools\nYou have access to:\n- **Web Search**: For current information and recent developments\n- **Quiz Generator**: Creates structured practice questions\n- **Problem Database**: Searches for similar problems and solutions\n- **Visual Generator**: Creates diagrams and visual aids\n- **Progress Tracker**: Records student's learning journey\n\nUse tools when they would enhance learning. For example:\n- Search for recent discoveries or current events\n- Generate quizzes after explanations\n- Find practice problems for homework help\n- Create visuals for complex concepts\n\n## Tone and Style\n- Be encouraging and patient\n- Use student's name occasionally\n- Celebrate progress and effort\n- Be enthusiastic about learning\n- Use emojis sparingly for engagement\n- Avoid being condescending\n\n## Safety and Ethics\n- Don't complete assignments for students\n- Verify information accuracy\n- Encourage academic integrity\n- Be inclusive and culturally sensitive\n- Refer complex personal issues to appropriate resources\n\nRemember: Your goal is to teach students HOW to learn, not just WHAT to learn!"
+        }
+      },
+      "id": "study-agent",
+      "name": "Study AI Agent",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 1.7,
-      "position": [450, 300]
+      "position": [650, 400]
     },
     {
       "parameters": {
         "model": "gemini-2.0-flash-exp",
         "options": {
           "temperature": 0.7,
-          "maxOutputTokens": 2048
+          "maxOutputTokens": 8192,
+          "topP": 0.95,
+          "topK": 40
         }
       },
-      "id": "gemini-model",
-      "name": "Gemini Chat Model",
+      "id": "gemini-tutor",
+      "name": "Gemini 2.0 Flash",
       "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
       "typeVersion": 1,
-      "position": [450, 150],
+      "position": [650, 200],
       "credentials": {
         "googlePalmApi": {
           "id": "1",
@@ -42,44 +64,321 @@
     {
       "parameters": {
         "sessionIdType": "customKey",
-        "sessionKey": "={{ $json.sessionId }}"
+        "sessionKey": "={{ $json.sessionId }}",
+        "contextWindowLength": 10
       },
-      "id": "memory",
-      "name": "Window Buffer Memory",
+      "id": "conversation-memory",
+      "name": "Conversation Memory",
       "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
       "typeVersion": 1.2,
-      "position": [650, 150]
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "name": "quiz_generator",
+        "description": "Generates practice quiz questions on a specific topic. Use this when student needs practice questions or wants to test their knowledge. Returns a structured quiz with questions, options, and correct answers.",
+        "workflowId": {
+          "__rl": true,
+          "value": "quiz-generator-workflow",
+          "mode": "list"
+        },
+        "fields": {
+          "values": [
+            {
+              "name": "topic",
+              "type": "String",
+              "description": "The topic or concept to generate questions about"
+            },
+            {
+              "name": "difficulty",
+              "type": "String", 
+              "description": "Difficulty level: easy, medium, hard"
+            },
+            {
+              "name": "questionCount",
+              "type": "Number",
+              "description": "Number of questions to generate (1-10)"
+            },
+            {
+              "name": "questionType",
+              "type": "String",
+              "description": "Type: multiple_choice, true_false, short_answer, mixed"
+            }
+          ]
+        }
+      },
+      "id": "quiz-tool",
+      "name": "Quiz Generator Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "name": "web_search",
+        "description": "Searches the web for current information, recent discoveries, or topics not in training data. Use when student asks about recent events, current statistics, or when you need to verify up-to-date information.",
+        "workflowId": {
+          "__rl": true,
+          "value": "web-search-workflow",
+          "mode": "list"
+        },
+        "fields": {
+          "values": [
+            {
+              "name": "query",
+              "type": "String",
+              "description": "The search query"
+            }
+          ]
+        }
+      },
+      "id": "search-tool",
+      "name": "Web Search Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "name": "practice_problem_finder",
+        "description": "Finds similar practice problems and worked solutions for a given problem type. Use when student needs more practice or wants to see solved examples.",
+        "workflowId": {
+          "__rl": true,
+          "value": "problem-finder-workflow",
+          "mode": "list"
+        },
+        "fields": {
+          "values": [
+            {
+              "name": "subject",
+              "type": "String",
+              "description": "Subject area (math, physics, chemistry, etc.)"
+            },
+            {
+              "name": "topic",
+              "type": "String",
+              "description": "Specific topic or concept"
+            },
+            {
+              "name": "difficulty",
+              "type": "String",
+              "description": "Difficulty level: beginner, intermediate, advanced"
+            },
+            {
+              "name": "problemCount",
+              "type": "Number",
+              "description": "Number of problems to return (1-5)"
+            }
+          ]
+        }
+      },
+      "id": "problem-tool",
+      "name": "Practice Problem Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [850, 500]
+    },
+    {
+      "parameters": {
+        "name": "study_progress_tracker",
+        "description": "Records and retrieves student's learning progress, completed topics, quiz scores, and areas needing improvement. Use to track progress or review what student has learned.",
+        "workflowId": {
+          "__rl": true,
+          "value": "progress-tracker-workflow",
+          "mode": "list"
+        },
+        "fields": {
+          "values": [
+            {
+              "name": "action",
+              "type": "String",
+              "description": "Action: record_progress, get_progress, get_weak_areas"
+            },
+            {
+              "name": "userId",
+              "type": "String",
+              "description": "User identifier"
+            },
+            {
+              "name": "data",
+              "type": "String",
+              "description": "Progress data as JSON string"
+            }
+          ]
+        }
+      },
+      "id": "progress-tool",
+      "name": "Progress Tracker Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [850, 600]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse and enrich AI response\nconst aiResponse = $input.item.json.output || $input.item.json.text || '';\nconst userContext = $('Process Chat Input').item.json;\n\n// Detect response type and intent\nconst responseAnalysis = {\n  containsQuiz: /question \\d+|quiz|test your knowledge/i.test(aiResponse),\n  containsMath: /\\$\\$|\\\\\\[|\\\\\\(|equation|formula/i.test(aiResponse),\n  containsCode: /```|function|def |class /i.test(aiResponse),\n  containsSteps: /step \\d+|first,|second,|finally/i.test(aiResponse),\n  isQuestion: /\\?\\s*$/.test(aiResponse.trim()),\n  sentiment: aiResponse.length > 100 ? 'detailed' : 'concise'\n};\n\n// Extract action items if present\nconst actionItems = [];\nconst actionRegex = /(?:try|practice|review|study|complete)\\s+([^.!?]+)/gi;\nlet match;\nwhile ((match = actionRegex.exec(aiResponse)) !== null) {\n  actionItems.push(match[1].trim());\n}\n\n// Extract key concepts mentioned\nconst conceptRegex = /\\*\\*([^*]+)\\*\\*/g;\nconst concepts = [];\nwhile ((match = conceptRegex.exec(aiResponse)) !== null) {\n  concepts.push(match[1]);\n}\n\n// Build structured response\nconst structuredResponse = {\n  // Core response\n  message: aiResponse,\n  timestamp: new Date().toISOString(),\n  \n  // Session info\n  sessionId: userContext.sessionId,\n  userId: userContext.userId,\n  messageId: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,\n  \n  // Analysis\n  analysis: responseAnalysis,\n  \n  // Extracted content\n  keyConcepts: concepts.slice(0, 5),\n  actionItems: actionItems.slice(0, 3),\n  \n  // Metadata\n  metadata: {\n    responseLength: aiResponse.length,\n    estimatedReadTime: Math.ceil(aiResponse.split(' ').length / 200), // minutes\n    complexity: aiResponse.length > 500 ? 'detailed' : aiResponse.length > 200 ? 'moderate' : 'simple',\n    toolsUsed: $input.item.json.toolsUsed || [],\n    model: 'gemini-2.0-flash-exp'\n  },\n  \n  // Suggested next actions\n  suggestions: []\n};\n\n// Generate contextual suggestions\nif (responseAnalysis.containsQuiz) {\n  structuredResponse.suggestions.push({\n    action: 'submit_answers',\n    label: 'Submit your quiz answers',\n    icon: '✅'\n  });\n}\n\nif (responseAnalysis.containsSteps) {\n  structuredResponse.suggestions.push({\n    action: 'request_clarification',\n    label: 'Ask about a specific step',\n    icon: '❓'\n  });\n}\n\nif (concepts.length > 0) {\n  structuredResponse.suggestions.push({\n    action: 'deep_dive',\n    label: `Learn more about: ${concepts[0]}`,\n    icon: '📚'\n  });\n}\n\nif (actionItems.length > 0) {\n  structuredResponse.suggestions.push({\n    action: 'practice',\n    label: 'Get practice problems',\n    icon: '💪'\n  });\n}\n\nif (!responseAnalysis.isQuestion) {\n  structuredResponse.suggestions.push({\n    action: 'quiz_me',\n    label: 'Quiz me on this topic',\n    icon: '🎯'\n  });\n}\n\nreturn { json: structuredResponse };"
+      },
+      "id": "process-response",
+      "name": "Process AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO chat_history (\n  session_id, user_id, message_id, user_message, ai_response,\n  key_concepts, action_items, tools_used, response_length, complexity, created_at\n) VALUES (\n  $1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11\n)",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.sessionId,\n  $json.userId,\n  $json.messageId,\n  $('Process Chat Input').item.json.message,\n  $json.message,\n  JSON.stringify($json.keyConcepts),\n  JSON.stringify($json.actionItems),\n  JSON.stringify($json.metadata.toolsUsed),\n  $json.metadata.responseLength,\n  $json.metadata.complexity,\n  $json.timestamp\n] }}"
+        }
+      },
+      "id": "save-chat-history",
+      "name": "Save Chat History",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1250, 500],
+      "credentials": {
+        "postgres": {
+          "id": "5",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  success: true,\n  response: $json.message,\n  sessionId: $json.sessionId,\n  messageId: $json.messageId,\n  timestamp: $json.timestamp,\n  keyConcepts: $json.keyConcepts,\n  actionItems: $json.actionItems,\n  suggestions: $json.suggestions,\n  metadata: {\n    readTime: $json.metadata.estimatedReadTime + ' min',\n    complexity: $json.metadata.complexity,\n    toolsUsed: $json.metadata.toolsUsed\n  }\n} }}",
+        "options": {}
+      },
+      "id": "respond-webhook",
+      "name": "Send Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1250, 400]
+    },
+    {
+      "parameters": {
+        "content": "## Enhanced Study Assistant\n\n**Multi-Modal AI Tutor**\n\n**Capabilities:**\n✅ Personalized explanations\n✅ Socratic method teaching\n✅ Quiz generation\n✅ Practice problems\n✅ Homework help\n✅ Web search for current info\n✅ Progress tracking\n✅ Study planning\n✅ Concept visualization\n\n**Teaching Methods:**\n- Active Learning\n- Spaced Repetition\n- Scaffolding\n- Growth Mindset\n- Differentiated Instruction\n\n**Tools Integrated:**\n- Quiz Generator\n- Web Search\n- Problem Finder\n- Progress Tracker\n\n**Memory:**\n- 10-message context window\n- Session-based conversations\n- Persistent learning history",
+        "height": 520,
+        "width": 280
+      },
+      "id": "workflow-docs",
+      "name": "Workflow Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 620]
     }
   ],
   "connections": {
-    "When clicking 'Test workflow'": {
+    "Study Chat Webhook": {
       "main": [
         [
           {
-            "node": "AI Study Agent",
+            "node": "Process Chat Input",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Gemini Chat Model": {
+    "Process Chat Input": {
+      "main": [
+        [
+          {
+            "node": "Study AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Study AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Process AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process AI Response": {
+      "main": [
+        [
+          {
+            "node": "Send Response",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save Chat History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini 2.0 Flash": {
       "ai_languageModel": [
         [
           {
-            "node": "AI Study Agent",
+            "node": "Study AI Agent",
             "type": "ai_languageModel",
             "index": 0
           }
         ]
       ]
     },
-    "Window Buffer Memory": {
+    "Conversation Memory": {
       "ai_memory": [
         [
           {
-            "node": "AI Study Agent",
+            "node": "Study AI Agent",
             "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quiz Generator Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "Study AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Web Search Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "Study AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Practice Problem Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "Study AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Progress Tracker Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "Study AI Agent",
+            "type": "ai_tool",
             "index": 0
           }
         ]
@@ -87,11 +386,33 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "any"
   },
   "staticData": null,
-  "tags": [],
+  "tags": [
+    {
+      "createdAt": "2025-01-15T10:00:00.000Z",
+      "updatedAt": "2025-01-15T10:00:00.000Z",
+      "id": "1",
+      "name": "Education"
+    },
+    {
+      "createdAt": "2025-01-15T10:00:00.000Z",
+      "updatedAt": "2025-01-15T10:00:00.000Z",
+      "id": "2",
+      "name": "AI"
+    },
+    {
+      "createdAt": "2025-01-15T10:00:00.000Z",
+      "updatedAt": "2025-01-15T10:00:00.000Z",
+      "id": "3",
+      "name": "Chatbot"
+    }
+  ],
   "meta": {
-    "templateCredsSetupCompleted": true
+    "templateCredsSetupCompleted": true,
+    "instanceId": "study-assistant-v2"
   }
 }

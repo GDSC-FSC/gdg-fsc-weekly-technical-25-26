@@ -1,5 +1,5 @@
 {
-  "name": "Research Paper Helper",
+  "name": "Enhanced Research Paper Helper",
   "nodes": [
     {
       "parameters": {
@@ -12,58 +12,141 @@
         }
       },
       "id": "schedule-trigger",
-      "name": "Schedule Trigger",
+      "name": "Daily Research Scan",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [250, 300]
+      "position": [250, 400]
     },
     {
       "parameters": {
-        "url": "https://arxiv.org/search/",
+        "jsCode": "// Define research topics and queries\nconst topics = [\n  {\n    id: 'ai-ml',\n    name: 'AI & Machine Learning',\n    queries: [\n      'cat:cs.AI OR cat:cs.LG',\n      'large language models',\n      'reinforcement learning'\n    ],\n    maxResults: 10\n  },\n  {\n    id: 'nlp',\n    name: 'Natural Language Processing',\n    queries: [\n      'cat:cs.CL',\n      'transformer architecture',\n      'text generation'\n    ],\n    maxResults: 10\n  },\n  {\n    id: 'cv',\n    name: 'Computer Vision',\n    queries: [\n      'cat:cs.CV',\n      'object detection',\n      'image segmentation'\n    ],\n    maxResults: 10\n  }\n];\n\n// Create separate items for each topic\nreturn topics.map(topic => ({\n  json: {\n    topicId: topic.id,\n    topicName: topic.name,\n    queries: topic.queries,\n    maxResults: topic.maxResults,\n    searchDate: new Date().toISOString().split('T')[0]\n  }\n}));"
+      },
+      "id": "define-topics",
+      "name": "Define Research Topics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 400]
+    },
+    {
+      "parameters": {
+        "url": "http://export.arxiv.org/api/query",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
             {
-              "name": "query",
-              "value": "={{ $json.topic }}"
+              "name": "search_query",
+              "value": "={{ $json.queries[0] }}"
             },
             {
-              "name": "searchtype",
-              "value": "all"
+              "name": "start",
+              "value": "0"
+            },
+            {
+              "name": "max_results",
+              "value": "={{ $json.maxResults }}"
+            },
+            {
+              "name": "sortBy",
+              "value": "submittedDate"
+            },
+            {
+              "name": "sortOrder",
+              "value": "descending"
             }
           ]
         },
-        "options": {}
+        "options": {
+          "timeout": 30000
+        }
       },
-      "id": "arxiv-search",
-      "name": "Search arXiv",
+      "id": "arxiv-api-search",
+      "name": "Search arXiv API",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [450, 300]
+      "position": [650, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse arXiv XML response\nconst xml = $input.item.json.data || $input.item.json;\nconst topicId = $input.item.json.topicId;\nconst topicName = $input.item.json.topicName;\n\n// Simple XML parser for arXiv feed\nconst parseArxivXML = (xmlString) => {\n  const entries = [];\n  \n  // Extract entries using regex (simplified parsing)\n  const entryRegex = /<entry>(.*?)<\\/entry>/gs;\n  const matches = xmlString.matchAll(entryRegex);\n  \n  for (const match of matches) {\n    const entry = match[1];\n    \n    // Extract fields\n    const extractTag = (tag) => {\n      const regex = new RegExp(`<${tag}[^>]*>([\\\\s\\\\S]*?)<\\\\/${tag}>`, 'i');\n      const tagMatch = entry.match(regex);\n      return tagMatch ? tagMatch[1].trim() : '';\n    };\n    \n    const extractAttr = (tag, attr) => {\n      const regex = new RegExp(`<${tag}[^>]*${attr}=\"([^\"]+)\"`, 'i');\n      const match = entry.match(regex);\n      return match ? match[1] : '';\n    };\n    \n    // Extract all authors\n    const authorRegex = /<author>.*?<name>([^<]+)<\\/name>.*?<\\/author>/gs;\n    const authorMatches = [...entry.matchAll(authorRegex)];\n    const authors = authorMatches.map(m => m[1].trim());\n    \n    // Extract categories\n    const categoryRegex = /<category\\s+term=\"([^\"]+)\"/g;\n    const categoryMatches = [...entry.matchAll(categoryRegex)];\n    const categories = categoryMatches.map(m => m[1]);\n    \n    const id = extractTag('id');\n    const arxivId = id.split('/abs/')[1] || id;\n    \n    entries.push({\n      arxivId: arxivId,\n      title: extractTag('title').replace(/\\s+/g, ' '),\n      summary: extractTag('summary').replace(/\\s+/g, ' '),\n      authors: authors,\n      published: extractTag('published').split('T')[0],\n      updated: extractTag('updated').split('T')[0],\n      categories: categories,\n      pdfLink: `http://arxiv.org/pdf/${arxivId}.pdf`,\n      absLink: `http://arxiv.org/abs/${arxivId}`,\n      primaryCategory: categories[0] || 'N/A'\n    });\n  }\n  \n  return entries;\n};\n\ntry {\n  const xmlString = typeof xml === 'string' ? xml : JSON.stringify(xml);\n  const papers = parseArxivXML(xmlString);\n  \n  // Return each paper as separate item with topic info\n  return papers.map(paper => ({\n    json: {\n      ...paper,\n      topicId: topicId,\n      topicName: topicName,\n      fetchedAt: new Date().toISOString()\n    }\n  }));\n} catch (error) {\n  console.error('XML parsing error:', error);\n  return [{ json: { error: error.message, topicId, topicName } }];\n}"
+      },
+      "id": "parse-arxiv-results",
+      "name": "Parse arXiv Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.arxivId }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "filter-valid-papers",
+      "name": "Filter Valid Papers",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.pdfLink }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-pdf",
+      "name": "Download PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1250, 300]
     },
     {
       "parameters": {
         "options": {}
       },
-      "id": "ai-agent",
-      "name": "Research AI Agent",
+      "id": "extract-pdf-text",
+      "name": "Extract PDF Text",
+      "type": "@n8n/n8n-nodes-langchain.documentPdfLoader",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are an expert research analyst specializing in academic paper review. You excel at identifying key contributions, methodology, and practical applications of research papers. Provide detailed, structured analysis with actionable insights."
+        }
+      },
+      "id": "research-ai-agent",
+      "name": "Research Analysis AI",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 1.7,
-      "position": [650, 300]
+      "position": [1250, 500]
     },
     {
       "parameters": {
         "model": "gemini-2.0-flash-exp",
         "options": {
-          "temperature": 0.3,
-          "maxOutputTokens": 4096
+          "temperature": 0.2,
+          "maxOutputTokens": 8192,
+          "topP": 0.9,
+          "topK": 40
         }
       },
-      "id": "gemini-model",
-      "name": "Gemini for Research",
+      "id": "gemini-research-model",
+      "name": "Gemini Research Model",
       "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
       "typeVersion": 1,
-      "position": [650, 150],
+      "position": [1250, 650],
       "credentials": {
         "googlePalmApi": {
           "id": "1",
@@ -74,32 +157,165 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "You are a research assistant. Analyze the following research papers and provide:\n1. Key findings and contributions\n2. Methodology summary\n3. Potential applications\n4. Related work suggestions\n\nPapers: {{ $json.papers }}"
+        "text": "# Research Paper Analysis\n\n## Paper Metadata\n**Title:** {{ $json.title }}\n**Authors:** {{ $json.authors.join(', ') }}\n**arXiv ID:** {{ $json.arxivId }}\n**Published:** {{ $json.published }}\n**Categories:** {{ $json.categories.join(', ') }}\n**Topic:** {{ $json.topicName }}\n\n## Abstract\n{{ $json.summary }}\n\n## Analysis Requirements\n\nProvide a comprehensive analysis in the following structured format:\n\n### 1. Research Context (2-3 sentences)\n- What problem does this paper address?\n- Why is this problem important?\n- What is the current state of research in this area?\n\n### 2. Key Contributions (3-5 bullet points)\n- What are the novel contributions?\n- What makes this work different from prior art?\n- What are the main claims?\n\n### 3. Methodology Overview (3-4 sentences)\n- What approach/methods are used?\n- What datasets or experiments were conducted?\n- What are the key technical innovations?\n\n### 4. Key Results & Findings (3-5 bullet points)\n- What are the main quantitative results?\n- What metrics improved and by how much?\n- What are the qualitative findings?\n\n### 5. Practical Applications (3-5 bullet points)\n- What are potential real-world use cases?\n- What industries could benefit?\n- What are the near-term vs long-term applications?\n\n### 6. Limitations & Future Work (2-3 bullet points)\n- What are acknowledged limitations?\n- What open problems remain?\n- What future research directions are suggested?\n\n### 7. Related Work & Connections (3-5 papers/topics)\n- What related papers should be reviewed?\n- What are the key references?\n- What research directions connect to this work?\n\n### 8. Technical Difficulty Assessment\n- Implementation complexity: [Low/Medium/High]\n- Required expertise level: [Beginner/Intermediate/Advanced/Expert]\n- Resource requirements: [Low/Medium/High]\n\n### 9. Impact Potential (1-2 sentences)\n- What is the potential impact on the field?\n- How likely is this work to be influential?\n\n### 10. Keywords & Tags\n- Generate 8-12 relevant keywords for categorization\n\n## Output Format\nProvide analysis in clean markdown with clear headers and bullet points."
       },
-      "id": "prompt",
-      "name": "Research Prompt",
+      "id": "enhanced-research-prompt",
+      "name": "Enhanced Research Prompt",
       "type": "@n8n/n8n-nodes-langchain.promptTemplate",
       "typeVersion": 1,
-      "position": [850, 150]
+      "position": [1450, 650]
     },
     {
       "parameters": {
-        "operation": "append",
-        "documentId": "={{ $json.documentId }}",
-        "dataMode": "autoMapInputData",
-        "options": {}
+        "jsCode": "// Parse and structure AI analysis output\nconst aiOutput = $input.item.json.output || $input.item.json.text || '';\nconst paper = $input.item.json;\n\n// Extract sections\nconst extractSection = (text, sectionName) => {\n  const pattern = new RegExp(`###?\\\\s*\\\\d*\\\\.?\\\\s*${sectionName}[^#]*?([\\\\s\\\\S]*?)(?=###|$)`, 'i');\n  const match = text.match(pattern);\n  return match ? match[1].trim() : '';\n};\n\n// Extract bullet points from section\nconst extractBullets = (section) => {\n  return section.split(/\\n/).filter(line => {\n    const trimmed = line.trim();\n    return trimmed.startsWith('-') || trimmed.startsWith('•') || /^\\d+\\./.test(trimmed);\n  }).map(line => line.replace(/^[-•\\d.\\s]+/, '').trim());\n};\n\n// Extract keywords\nconst keywordsSection = extractSection(aiOutput, 'Keywords');\nconst keywords = keywordsSection.match(/[\\w\\s-]+/g)?.filter(k => k.trim().length > 2).slice(0, 12) || [];\n\n// Extract impact assessment\nconst impactSection = extractSection(aiOutput, 'Impact Potential');\nconst technicalSection = extractSection(aiOutput, 'Technical Difficulty');\n\n// Parse difficulty levels\nconst extractLevel = (text, label) => {\n  const regex = new RegExp(`${label}:\\\\s*\\\\[?([\\\\w\\\\/]+)\\\\]?`, 'i');\n  const match = text.match(regex);\n  return match ? match[1] : 'Unknown';\n};\n\nconst structuredAnalysis = {\n  // Paper metadata\n  arxivId: paper.arxivId,\n  title: paper.title,\n  authors: paper.authors,\n  published: paper.published,\n  categories: paper.categories,\n  topicName: paper.topicName,\n  pdfLink: paper.pdfLink,\n  absLink: paper.absLink,\n  \n  // Analysis sections\n  context: extractSection(aiOutput, 'Research Context'),\n  contributions: extractBullets(extractSection(aiOutput, 'Key Contributions')),\n  methodology: extractSection(aiOutput, 'Methodology Overview'),\n  results: extractBullets(extractSection(aiOutput, 'Key Results')),\n  applications: extractBullets(extractSection(aiOutput, 'Practical Applications')),\n  limitations: extractBullets(extractSection(aiOutput, 'Limitations')),\n  relatedWork: extractBullets(extractSection(aiOutput, 'Related Work')),\n  \n  // Assessments\n  implementationComplexity: extractLevel(technicalSection, 'Implementation complexity'),\n  expertiseLevel: extractLevel(technicalSection, 'Required expertise'),\n  resourceRequirements: extractLevel(technicalSection, 'Resource requirements'),\n  impactPotential: impactSection,\n  \n  // Metadata\n  keywords: keywords,\n  fullAnalysis: aiOutput,\n  analyzedAt: new Date().toISOString(),\n  \n  // Summary stats\n  authorCount: paper.authors.length,\n  categoryCount: paper.categories.length,\n  contributionCount: extractBullets(extractSection(aiOutput, 'Key Contributions')).length\n};\n\nreturn { json: structuredAnalysis };"
+      },
+      "id": "structure-analysis",
+      "name": "Structure Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 500]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "{{ $env.RESEARCH_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.published }}",
+            "arXiv_ID": "={{ $json.arxivId }}",
+            "Title": "={{ $json.title }}",
+            "Authors": "={{ $json.authors.join('; ') }}",
+            "Topic": "={{ $json.topicName }}",
+            "Categories": "={{ $json.categories.join(', ') }}",
+            "Context": "={{ $json.context }}",
+            "Key_Contributions": "={{ $json.contributions.join(' | ') }}",
+            "Methodology": "={{ $json.methodology }}",
+            "Applications": "={{ $json.applications.join(' | ') }}",
+            "Implementation_Complexity": "={{ $json.implementationComplexity }}",
+            "Expertise_Level": "={{ $json.expertiseLevel }}",
+            "Impact_Potential": "={{ $json.impactPotential }}",
+            "Keywords": "={{ $json.keywords.join(', ') }}",
+            "PDF_Link": "={{ $json.pdfLink }}",
+            "Abstract_Link": "={{ $json.absLink }}",
+            "Analyzed_At": "={{ $json.analyzedAt }}"
+          }
+        },
+        "options": {
+          "dataLocationOnSheet": "{{ 'A1:Q1000' }}"
+        }
       },
       "id": "save-to-sheets",
       "name": "Save to Google Sheets",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [850, 300],
+      "position": [1650, 500],
       "credentials": {
         "googleSheetsOAuth2Api": {
           "id": "2",
           "name": "Google Sheets"
         }
       }
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "insert",
+        "table": "research_papers",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "arxiv_id": "={{ $json.arxivId }}",
+            "title": "={{ $json.title }}",
+            "authors": "={{ JSON.stringify($json.authors) }}",
+            "published_date": "={{ $json.published }}",
+            "categories": "={{ JSON.stringify($json.categories) }}",
+            "topic": "={{ $json.topicName }}",
+            "pdf_link": "={{ $json.pdfLink }}",
+            "abstract_link": "={{ $json.absLink }}",
+            "context": "={{ $json.context }}",
+            "contributions": "={{ JSON.stringify($json.contributions) }}",
+            "methodology": "={{ $json.methodology }}",
+            "results": "={{ JSON.stringify($json.results) }}",
+            "applications": "={{ JSON.stringify($json.applications) }}",
+            "limitations": "={{ JSON.stringify($json.limitations) }}",
+            "related_work": "={{ JSON.stringify($json.relatedWork) }}",
+            "implementation_complexity": "={{ $json.implementationComplexity }}",
+            "expertise_level": "={{ $json.expertiseLevel }}",
+            "impact_potential": "={{ $json.impactPotential }}",
+            "keywords": "={{ JSON.stringify($json.keywords) }}",
+            "full_analysis": "={{ $json.fullAnalysis }}",
+            "analyzed_at": "={{ $json.analyzedAt }}"
+          }
+        },
+        "options": {
+          "queryBatching": "transaction"
+        }
+      },
+      "id": "save-to-database",
+      "name": "Save to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1850, 500],
+      "credentials": {
+        "postgres": {
+          "id": "5",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate results for daily summary\nconst items = $input.all();\n\nconst summary = {\n  date: new Date().toISOString().split('T')[0],\n  totalPapers: items.length,\n  byTopic: {},\n  byComplexity: {},\n  topKeywords: {},\n  highImpactPapers: []\n};\n\n// Aggregate statistics\nitems.forEach(item => {\n  const data = item.json;\n  \n  // Count by topic\n  summary.byTopic[data.topicName] = (summary.byTopic[data.topicName] || 0) + 1;\n  \n  // Count by complexity\n  const complexity = data.implementationComplexity || 'Unknown';\n  summary.byComplexity[complexity] = (summary.byComplexity[complexity] || 0) + 1;\n  \n  // Aggregate keywords\n  (data.keywords || []).forEach(kw => {\n    summary.topKeywords[kw] = (summary.topKeywords[kw] || 0) + 1;\n  });\n  \n  // Collect high impact papers (simple heuristic)\n  if (data.impactPotential && data.impactPotential.toLowerCase().includes('high')) {\n    summary.highImpactPapers.push({\n      title: data.title,\n      arxivId: data.arxivId,\n      topic: data.topicName\n    });\n  }\n});\n\n// Sort top keywords\nsummary.topKeywords = Object.entries(summary.topKeywords)\n  .sort((a, b) => b[1] - a[1])\n  .slice(0, 15)\n  .reduce((obj, [k, v]) => ({ ...obj, [k]: v }), {});\n\nreturn { json: summary };"
+      },
+      "id": "create-summary",
+      "name": "Create Daily Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2050, 500]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "📚 **Daily Research Digest - {{ $json.date }}**\n\n📊 **Summary:**\n• Total Papers Analyzed: {{ $json.totalPapers }}\n\n🏷️ **By Topic:**\n{{ Object.entries($json.byTopic).map(([topic, count]) => `• ${topic}: ${count}`).join('\\n') }}\n\n⚙️ **By Complexity:**\n{{ Object.entries($json.byComplexity).map(([level, count]) => `• ${level}: ${count}`).join('\\n') }}\n\n🔥 **Top Keywords:**\n{{ Object.entries($json.topKeywords).slice(0, 10).map(([kw, count]) => `• ${kw} (${count})`).join('\\n') }}\n\n⭐ **High Impact Papers:** {{ $json.highImpactPapers.length }}\n{{ $json.highImpactPapers.slice(0, 3).map(p => `\\n📄 ${p.title}\\narXiv: ${p.arxivId}`).join('\\n\\n') }}\n\n✅ All papers saved to Google Sheets and database!",
+        "additionalFields": {
+          "parseMode": "Markdown"
+        }
+      },
+      "id": "send-daily-digest",
+      "name": "Send Daily Digest",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2250, 500],
+      "credentials": {
+        "telegramApi": {
+          "id": "6",
+          "name": "Telegram"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Research Paper Analysis Workflow\n\n**Features:**\n✅ Multi-topic arXiv search\n✅ Automated PDF download\n✅ AI-powered analysis\n✅ Structured data extraction\n✅ Google Sheets export\n✅ Database storage\n✅ Daily digest notifications\n\n**Topics Covered:**\n- AI & Machine Learning\n- Natural Language Processing  \n- Computer Vision\n\n**Analysis Includes:**\n- Key contributions\n- Methodology\n- Applications\n- Impact assessment\n- Technical difficulty",
+        "height": 340,
+        "width": 240
+      },
+      "id": "workflow-info",
+      "name": "Workflow Info",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 580]
     }
   ],
   "connections": {
@@ -107,25 +323,69 @@
       "main": [
         [
           {
-            "node": "Search arXiv",
+            "node": "Define Research Topics",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Search arXiv": {
+    "Define Research Topics": {
       "main": [
         [
           {
-            "node": "Research AI Agent",
+            "node": "Search arXiv API",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Research AI Agent": {
+    "Search arXiv API": {
+      "main": [
+        [
+          {
+            "node": "Parse arXiv Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse arXiv Results": {
+      "main": [
+        [
+          {
+            "node": "Filter Valid Papers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Valid Papers": {
+      "main": [
+        [
+          {
+            "node": "Research Analysis AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Research Analysis AI": {
+      "main": [
+        [
+          {
+            "node": "Structure Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structure Analysis": {
       "main": [
         [
           {
@@ -136,22 +396,55 @@
         ]
       ]
     },
-    "Gemini for Research": {
+    "Save to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Save to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Database": {
+      "main": [
+        [
+          {
+            "node": "Create Daily Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Daily Summary": {
+      "main": [
+        [
+          {
+            "node": "Send Daily Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Research Model": {
       "ai_languageModel": [
         [
           {
-            "node": "Research AI Agent",
+            "node": "Research Analysis AI",
             "type": "ai_languageModel",
             "index": 0
           }
         ]
       ]
     },
-    "Research Prompt": {
+    "Enhanced Research Prompt": {
       "ai_promptTemplate": [
         [
           {
-            "node": "Research AI Agent",
+            "node": "Research Analysis AI",
             "type": "ai_promptTemplate",
             "index": 0
           }
@@ -160,15 +453,39 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler-workflow",
+    "timezone": "America/New_York"
   },
   "staticData": {
     "node:Schedule Trigger": {
       "recurrencyRules": []
     }
   },
-  "tags": [],
+  "tags": [
+    {
+      "createdAt": "2025-01-15T10:00:00.000Z",
+      "updatedAt": "2025-01-15T10:00:00.000Z",
+      "id": "1",
+      "name": "Research"
+    },
+    {
+      "createdAt": "2025-01-15T10:00:00.000Z",
+      "updatedAt": "2025-01-15T10:00:00.000Z",
+      "id": "2",
+      "name": "AI"
+    },
+    {
+      "createdAt": "2025-01-15T10:00:00.000Z",
+      "updatedAt": "2025-01-15T10:00:00.000Z",
+      "id": "3",
+      "name": "Academic"
+    }
+  ],
   "meta": {
-    "templateCredsSetupCompleted": true
+    "templateCredsSetupCompleted": true,
+    "instanceId": "research-helper-v2"
   }
 }

@@ -1,0 +1,76 @@
+{
+  "name": "Web Search Helper",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "When called by another workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://html.duckduckgo.com/html/",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.query }}"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 3
+            }
+          }
+        }
+      },
+      "id": "http-request",
+      "name": "DuckDuckGo Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract search results from DuckDuckGo HTML\nconst html = $input.first().json.body;\n\n// Simple regex to extract result snippets\nconst titleRegex = /<a class=\"result__a\" href=\"([^\"]+)\">([^<]+)</g;\nconst snippetRegex = /<a class=\"result__snippet\">([^<]+)</g;\n\nconst results = [];\nlet match;\nlet count = 0;\n\n// Extract titles and links\nwhile ((match = titleRegex.exec(html)) !== null && count < 5) {\n  results.push({\n    url: match[1],\n    title: match[2]\n  });\n  count++;\n}\n\n// Extract snippets\ncount = 0;\nwhile ((match = snippetRegex.exec(html)) !== null && count < results.length) {\n  if (results[count]) {\n    results[count].snippet = match[1];\n  }\n  count++;\n}\n\n// Format results as a readable string\nconst formattedResults = results.map((r, i) => \n  `${i + 1}. ${r.title}\\n   ${r.snippet || 'No description'}\\n   ${r.url}`\n).join('\\n\\n');\n\nreturn { \n  json: { \n    response: {\n      query: $input.first().json.query,\n      results: formattedResults || 'No results found',\n      count: results.length\n    }\n  } \n};"
+      },
+      "id": "code-node",
+      "name": "Parse Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    }
+  ],
+  "connections": {
+    "When called by another workflow": {
+      "main": [
+        [
+          {
+            "node": "DuckDuckGo Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DuckDuckGo Search": {
+      "main": [
+        [
+          {
+            "node": "Parse Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

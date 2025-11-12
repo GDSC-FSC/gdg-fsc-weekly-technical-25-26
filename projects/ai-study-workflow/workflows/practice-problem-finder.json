@@ -1,0 +1,37 @@
+{
+  "name": "Practice Problem Finder",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "When called by another workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Simple practice problem finder\nconst subject = $json.subject || 'math';\nconst topic = $json.topic || 'general';\nconst difficulty = $json.difficulty || 'medium';\nconst count = parseInt($json.problemCount) || 3;\n\nconst problems = [];\n\nfor (let i = 1; i <= count; i++) {\n  problems.push({\n    number: i,\n    problem: `${subject.charAt(0).toUpperCase() + subject.slice(1)} problem ${i}: ${topic} (${difficulty})`,\n    hints: [\n      'Think about the core concept',\n      'Break it down into steps',\n      'Check your work'\n    ],\n    solution: `Worked solution for problem ${i} would be shown here.`,\n    difficulty: difficulty\n  });\n}\n\nreturn {\n  json: {\n    response: {\n      subject: subject,\n      topic: topic,\n      difficulty: difficulty,\n      totalProblems: count,\n      problems: problems\n    }\n  }\n};"
+      },
+      "id": "find-problems",
+      "name": "Find Practice Problems",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    }
+  ],
+  "connections": {
+    "When called by another workflow": {
+      "main": [
+        [
+          {
+            "node": "Find Practice Problems",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}
